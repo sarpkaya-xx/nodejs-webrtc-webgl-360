@@ -1,0 +1,256 @@
+<!doctype html>  
+<html lang="en">  
+    <head>
+         
+        <meta charset = "utf-8" /> 
+        
+        <title>Peer | Host</title>
+        
+        <style>
+                     html,body{
+            
+                        margin:0;
+                        padding:0;
+                        overflow:hidden;
+                    }
+                    #RemoteConnectionScene{
+                        position:absolute;
+                        left:0;
+                        top:0;
+
+                    }
+
+                    #localVideo{
+
+                        border:5px solid black;
+
+                    }
+
+        </style>
+        
+        
+    </head>
+    <body>
+        <video id="localVideo" autoplay muted style="width:300px;height:200px;z-index:1000;position:absolute;top:0;left:0;"></video>
+        <video id="remoteVideo" autoplay style="width:300px;height:200px;display:none;"></video>
+        
+        <button id="startBtn" style="position:absolute;left:800px;top:0;" type="button">Call</button>
+             
+        <script src="https://code.jquery.com/jquery-3.1.1.slim.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r73/three.min.js"></script>
+        <script src="https://s3-us-west-2.amazonaws.com/s.cdpn.io/211120/orbitControls.js"></script>
+        <script src="/socket.io/socket.io.js"></script>     
+        
+         <script>
+
+            var localVideo;
+            var remoteVideo;
+            var peerConnection;
+            var peerConnectionConfig = {'iceServers': [{'url': 'stun:stun.services.mozilla.com'}, {'url': 'stun:stun.l.google.com:19302'}]};
+
+            navigator.getUserMedia = navigator.getUserMedia || navigator.mozGetUserMedia || navigator.webkitGetUserMedia;
+            window.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+            window.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate || window.webkitRTCIceCandidate;
+            window.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.webkitRTCSessionDescription;
+
+            function UUID() {
+                return (((1+Math.random())*0x10000)|0).toString(16).substring(1); 
+            }
+
+
+            var guid = (UUID() + UUID() + "-" + UUID() + "-4" + UUID().substr(0,3) + "-" + UUID() + "-" + UUID() + UUID() + UUID()).toLowerCase();
+
+            var socket = io('https://clark-next.codio.io:9600', {secure: true});
+
+            socket.on('whatIsYourName', function () {
+
+                socket.emit('mynameis', { name: guid });
+            });
+
+            socket.on('clients', function (data) {
+
+                $('#clients').find('option').remove().end();
+
+                for(var k in data.clients){
+
+                    if(data.clients[k] != guid){
+                        console.log("Peer name: "+data.clients[k]);
+                        $("#clients").append('<option value="'+data.clients[k]+'">'+data.clients[k]+'</option>').val(data.clients[k])
+
+                    }
+
+                }
+
+            });
+
+            socket.on('onMessage', function (data) {
+
+          
+                if(!peerConnection) start(false);
+
+                var signal = data;
+
+                if(signal.sdp) {
+
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp), function() {
+
+                        if(signal.sdp.type == 'offer') {
+
+                            peerConnection.createAnswer(gotDescription, createAnswerError);
+
+                        }
+
+                    });
+                } else if(signal.ice) {
+
+                    peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice));
+
+                }
+
+            });
+
+
+            $( document ).ready(function() {
+
+                var constraints = {
+                    video: true,
+                    audio: true,
+                };
+
+                if(navigator.getUserMedia) {
+
+                    navigator.getUserMedia(constraints, getUserMediaSuccess, getUserMediaError);
+
+                } else {
+
+                    alert('Your browser does not support getUserMedia API');
+
+                }
+
+                localVideo = document.getElementById('localVideo');
+                remoteVideo = document.getElementById('remoteVideo');
+
+                $("#startBtn").click(function(){
+
+                    start(true);
+                });
+
+
+
+            });
+
+            function getUserMediaSuccess(stream) {
+                
+                var width=300;
+                var height=200;
+                localStream = stream;
+                localVideo.src =  window.URL.createObjectURL(stream);
+
+            }
+
+            function getUserMediaError(error) {
+                console.log(error);
+            }
+
+            function start(isCaller) {
+
+                peerConnection = new RTCPeerConnection(peerConnectionConfig);
+                peerConnection.onicecandidate = gotIceCandidate;
+                peerConnection.onaddstream = gotRemoteStream;
+                peerConnection.addStream(localStream);
+
+                if(isCaller) {
+                    peerConnection.createOffer(gotDescription, createOfferError);
+                }
+            }
+
+            function gotDescription(description) {
+               
+
+                peerConnection.setLocalDescription(description, function () {
+
+                    socket.emit("message",{'sdp': description});
+
+                }, function() {console.log('set description error')});
+            }
+
+            function gotIceCandidate(event) {
+                if(event.candidate != null) {
+
+                    socket.emit("message",{'ice': event.candidate});
+                }
+            }
+
+            function gotRemoteStream(event) {
+              
+                remoteVideo.src = window.URL.createObjectURL(event.stream);
+                
+                var width = window.innerWidth;
+                var height = window.innerHeight;
+               
+
+                var renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setSize(width, height);
+                renderer.domElement.id = 'RemoteConnectionScene';
+                document.body.appendChild(renderer.domElement);
+
+                videoTexture = new THREE.Texture(remoteVideo);
+                videoTexture.minFilter = THREE.LinearFilter;
+                videoTexture.magFilter = THREE.LinearFilter;
+                videoTexture.format = THREE.RGBFormat;
+
+
+
+                var scene = new THREE.Scene();
+
+                var cubeGeometry = new THREE.SphereGeometry(500, 60, 40);
+                var sphereMat = new THREE.MeshBasicMaterial({map: videoTexture});
+                sphereMat.side = THREE.BackSide;
+                var cube = new THREE.Mesh(cubeGeometry, sphereMat);
+                scene.add(cube);
+
+
+
+                var camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+                camera.position.y = 0;
+                camera.position.z = 500;
+
+                scene.add(camera);
+
+                var controls = new THREE.OrbitControls( camera);
+
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.25;
+                controls.enableZoom = false; 
+                controls.maxDistance = 500;
+                controls.minDistance = 500;
+
+                function render() {
+                    if( remoteVideo.readyState === remoteVideo.HAVE_ENOUGH_DATA ){
+                        videoTexture.needsUpdate = true;
+                    }
+                    controls.update(); 
+                    renderer.render(scene, camera);
+                    requestAnimationFrame(render);
+                }
+
+                render();
+            }
+
+            function createOfferError(error) {
+                console.log(error);
+            }
+
+            function createAnswerError(error) {
+                console.log(error);
+            }
+
+
+
+
+
+
+
+        </script>
+    </body>
+</html> 

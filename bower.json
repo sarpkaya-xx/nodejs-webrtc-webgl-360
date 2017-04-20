@@ -1,0 +1,25 @@
+{
+  "name": "nodejs-webrtc-webgl-360",
+  "description": "NodeJS as a backend to manage peer connection between clients, WebRTC to real-time communication over peer-to-peer connections, and WebGL to navigate inside 360 degree camera output during chat.",
+  "main": "app.js",
+  "authors": [
+    "Anıl Sarpkaya"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "nodejs",
+    "webrtc",
+    "360"
+  ],
+  "homepage": "index.html",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "jquery": "^3.2.1"
+  }
+}
